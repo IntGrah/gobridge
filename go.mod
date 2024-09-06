@@ -4,6 +4,9 @@ go 1.23.0
 
 require (
 	github.com/bwmarrin/discordgo v0.28.1
+	github.com/go-sql-driver/mysql v1.8.1
+	github.com/joho/godotenv v1.5.1
+	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/mdp/qrterminal v1.0.1
 	go.mau.fi/whatsmeow v0.0.0-20240821142752-3d63c6fcc1a7
 )
