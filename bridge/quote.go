@@ -1,4 +1,4 @@
-package richtext
+package bridge
 
 import "fmt"
 

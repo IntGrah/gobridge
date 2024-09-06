@@ -2,13 +2,9 @@ package whatsapp
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/IntGrah/gobridge/bridge"
-	"github.com/IntGrah/gobridge/database"
-	"github.com/IntGrah/gobridge/download"
-	"github.com/IntGrah/gobridge/richtext"
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store"
@@ -39,10 +35,10 @@ func Receive(waMsg *events.Message) (bridge.Message, string, string) {
 
 	msg := waMsg.Message
 	if ci := getContextInfo(msg); ci != nil {
-		message.Reply, _ = database.Assoc.FromWa(ci.GetStanzaID())
+		message.Reply, _ = bridge.Assoc.FromWa(ci.GetStanzaID())
 	}
 	if msg.ProtocolMessage != nil && msg.ProtocolMessage.GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT {
-		message.Reply, _ = database.Assoc.FromWa(waMsg.Message.ProtocolMessage.Key.GetID())
+		message.Reply, _ = bridge.Assoc.FromWa(waMsg.Message.ProtocolMessage.Key.GetID())
 	}
 
 	var attachment bridge.Attachment
@@ -54,9 +50,6 @@ func Receive(waMsg *events.Message) (bridge.Message, string, string) {
 	switch {
 	case msg.ImageMessage != nil:
 		mediaMessage = msg.ImageMessage
-		fmt.Printf("msg.ImageMessage.GetDirectPath(): %v\n", msg.ImageMessage.GetDirectPath())
-		fmt.Printf("msg.ImageMessage.GetStaticURL(): %v\n", msg.ImageMessage.GetStaticURL())
-		fmt.Printf("msg.ImageMessage.GetURL(): %v\n", msg.ImageMessage.GetURL())
 	case msg.VideoMessage != nil:
 		mediaMessage = msg.VideoMessage
 	case msg.AudioMessage != nil:
@@ -68,7 +61,7 @@ func Receive(waMsg *events.Message) (bridge.Message, string, string) {
 	if mediaMessage != nil {
 		attachment.Data, _ = Client.Download(mediaMessage)
 		attachment.MimeType = mediaMessage.GetMimetype()
-		ext := download.MimeTypeToExtension(attachment.MimeType)
+		ext := bridge.MimeTypeToExtension(attachment.MimeType)
 		attachment.Filename = "MM-" + time.Now().UTC().Format("20060102") + "-WA0000" + ext
 
 		message.Attachments = append(message.Attachments, attachment)
@@ -77,7 +70,7 @@ func Receive(waMsg *events.Message) (bridge.Message, string, string) {
 }
 
 func Post(message bridge.Message) (string, string) {
-	formattedText := richtext.Format(message.Username, message.Text)
+	formattedText := bridge.Format(message.Username, message.Text)
 
 	waMessage := &waE2E.Message{}
 
@@ -122,30 +115,13 @@ func Post(message bridge.Message) (string, string) {
 	return waResp.ID, Client.Store.ID.String()
 }
 
-func ExtractText(msg *waE2E.Message) string {
-	switch {
-	case msg.Conversation != nil:
-		return msg.GetConversation()
-	case msg.ExtendedTextMessage != nil:
-		return msg.ExtendedTextMessage.GetText()
-	case msg.ImageMessage != nil:
-		return msg.ImageMessage.GetCaption()
-	case msg.VideoMessage != nil:
-		return msg.VideoMessage.GetCaption()
-	case msg.DocumentMessage != nil:
-		return msg.DocumentMessage.GetCaption()
-	default:
-		return ""
-	}
-}
-
 func getContextInfo(msg *waE2E.Message) *waE2E.ContextInfo {
 	switch {
-	case msg.Conversation != nil: // Text
+	case msg.Conversation != nil:
 		return nil
-	case msg.ExtendedTextMessage != nil: // Text, reply
+	case msg.ExtendedTextMessage != nil:
 		return msg.ExtendedTextMessage.GetContextInfo()
-	case msg.ImageMessage != nil: // Text, image, reply
+	case msg.ImageMessage != nil:
 		return msg.ImageMessage.GetContextInfo()
 	case msg.VideoMessage != nil:
 		return msg.VideoMessage.GetContextInfo()

@@ -5,8 +5,6 @@ import (
 	"fmt"
 
 	"github.com/IntGrah/gobridge/bridge"
-	"github.com/IntGrah/gobridge/database"
-	"github.com/IntGrah/gobridge/richtext"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -23,7 +21,7 @@ func Receive(dcMsg *discordgo.MessageCreate) (bridge.Message, string) {
 	}
 
 	if dcMsg.ReferencedMessage != nil {
-		message.Reply, _ = database.Assoc.FromDc(dcMsg.ReferencedMessage.ID)
+		message.Reply, _ = bridge.Assoc.FromDc(dcMsg.ReferencedMessage.ID)
 	}
 
 	for _, embed := range dcMsg.Embeds {
@@ -48,7 +46,7 @@ func Post(message bridge.Message) string {
 	}
 
 	messageSend := &discordgo.MessageSend{
-		Content: richtext.Format(message.Username, message.Text),
+		Content: bridge.Format(message.Username, message.Text),
 		Files:   files,
 	}
 

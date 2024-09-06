@@ -5,9 +5,8 @@ import (
 	"log"
 	"os"
 
-	"github.com/IntGrah/gobridge/database"
+	"github.com/IntGrah/gobridge/bridge"
 	"github.com/IntGrah/gobridge/discord"
-	"github.com/IntGrah/gobridge/richtext"
 	"github.com/IntGrah/gobridge/whatsapp"
 	"github.com/bwmarrin/discordgo"
 	"github.com/joho/godotenv"
@@ -20,25 +19,26 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 )
 
-func handleDiscordMessageCreate(_ *discordgo.Session, dcMsg *discordgo.MessageCreate) {
+var fromMe = true
+
+func discordHandleMessageCreate(_ *discordgo.Session, dcMsg *discordgo.MessageCreate) {
 	if dcMsg.ChannelID != discord.ChannelID || dcMsg.Author == nil || dcMsg.Author.Bot {
 		return
 	}
 	message, dcMsgID := discord.Receive(dcMsg)
-	waMsgID, waJID := whatsapp.Post(message)
-	database.Assoc.Put(database.Association{DC: dcMsgID, WA: waMsgID, JID: waJID})
+	waMsgID, waMsgJID := whatsapp.Post(message)
+	bridge.Assoc.Put(bridge.Association{DC: dcMsgID, WA: waMsgID, JID: waMsgJID})
 }
 
-func handleDiscordMessageDelete(_ *discordgo.Session, dcMsg *discordgo.MessageDelete) {
+func discordHandleMessageDelete(_ *discordgo.Session, dcMsg *discordgo.MessageDelete) {
 	if dcMsg.ChannelID != discord.ChannelID {
 		return
 	}
 
-	association, err := database.Assoc.FromDc(dcMsg.ID)
+	association, err := bridge.Assoc.FromDc(dcMsg.ID)
 	if err != nil {
 		return
 	}
-	fromMe := true
 	messageDelete := &waE2E.Message{
 		ProtocolMessage: &waE2E.ProtocolMessage{
 			Key: &waCommon.MessageKey{
@@ -50,18 +50,18 @@ func handleDiscordMessageDelete(_ *discordgo.Session, dcMsg *discordgo.MessageDe
 		},
 	}
 	whatsapp.Client.SendMessage(context.Background(), whatsapp.GroupJID, messageDelete)
-	database.Assoc.Delete(association)
+	bridge.Assoc.Delete(association)
 }
 
-func handleDiscordMessageUpdate(_ *discordgo.Session, dcMsg *discordgo.MessageUpdate) {
+func discordHandleMessageUpdate(_ *discordgo.Session, dcMsg *discordgo.MessageUpdate) {
 	if dcMsg.ChannelID != discord.ChannelID || dcMsg.Author == nil || dcMsg.Author.Bot {
 		return
 	}
-	association, err := database.Assoc.FromDc(dcMsg.ID)
+	association, err := bridge.Assoc.FromDc(dcMsg.ID)
 	if err != nil {
 		return
 	}
-	fromMe := true
+	formattedText := bridge.Format(dcMsg.Author.Username, dcMsg.Content)
 	messageEdit := &waE2E.Message{
 		ProtocolMessage: &waE2E.ProtocolMessage{
 			Key: &waCommon.MessageKey{
@@ -70,7 +70,7 @@ func handleDiscordMessageUpdate(_ *discordgo.Session, dcMsg *discordgo.MessageUp
 				FromMe:    &fromMe,
 			},
 			EditedMessage: &waE2E.Message{
-				Conversation: &dcMsg.Content,
+				Conversation: &formattedText,
 			},
 			Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
 		},
@@ -78,47 +78,46 @@ func handleDiscordMessageUpdate(_ *discordgo.Session, dcMsg *discordgo.MessageUp
 	whatsapp.Client.SendMessage(context.Background(), whatsapp.GroupJID, messageEdit)
 }
 
-func handleWhatsAppMessage(waMsg *events.Message) {
+func whatsappHandleMessage(waMsg *events.Message) {
 	if waMsg.Info.Chat != whatsapp.GroupJID {
 		return
 	}
-	if waMsg.Message.ProtocolMessage != nil {
+	if waMsg.Message.ProtocolMessage != nil { // Edited or deleted message
 		prot := waMsg.Message.ProtocolMessage
 		if prot.GetType() == waE2E.ProtocolMessage_REVOKE {
-			association, err := database.Assoc.FromWa(prot.Key.GetID())
+			association, err := bridge.Assoc.FromWa(prot.Key.GetID())
 			if err != nil {
 				return
 			}
 			discord.Client.ChannelMessageDelete(discord.ChannelID, association.DC)
-			database.Assoc.Delete(association)
+			bridge.Assoc.Delete(association)
 		} else if prot.GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT {
-			association, err := database.Assoc.FromWa(prot.Key.GetID())
+			association, err := bridge.Assoc.FromWa(prot.Key.GetID())
 			if err != nil {
 				return
 			}
-			formattedText := richtext.Format(whatsapp.GetNameFromJID(waMsg.Info.Sender), whatsapp.ExtractText(prot.EditedMessage))
+			formattedText := bridge.Format(whatsapp.GetNameFromJID(waMsg.Info.Sender), whatsapp.ExtractText(prot.EditedMessage))
 			discord.Client.ChannelMessageEdit(discord.ChannelID, association.DC, formattedText)
 		}
 		return
 	}
 	message, waMsgID, waJID := whatsapp.Receive(waMsg)
 	dcMsgID := discord.Post(message)
-	database.Assoc.Put(database.Association{DC: dcMsgID, WA: waMsgID, JID: waJID})
+	bridge.Assoc.Put(bridge.Association{DC: dcMsgID, WA: waMsgID, JID: waJID})
 }
 
-func EventHandler(evt interface{}) {
+func whatsappHandleEvent(evt interface{}) {
 	switch e := evt.(type) {
 	case *events.Message:
-		handleWhatsAppMessage(e)
+		whatsappHandleMessage(e)
 	}
 }
 
 func init() {
 	godotenv.Load(".env")
-	database.Assoc = database.NewMySQL()
+	bridge.Assoc = bridge.NewMySQL()
 	discord.Token = os.Getenv("DISCORD_TOKEN")
 	discord.ChannelID = os.Getenv("DISCORD_CHANNEL_ID")
-
 	whatsapp.GroupJIDStr = os.Getenv("WHATSAPP_GROUP_JID")
 	whatsapp.GroupJID, _ = types.ParseJID(whatsapp.GroupJIDStr)
 }
@@ -126,15 +125,15 @@ func init() {
 func main() {
 	// Setup Discord session
 	discord.Client, _ = discordgo.New("Bot " + discord.Token)
-	discord.Client.AddHandler(handleDiscordMessageCreate)
-	discord.Client.AddHandler(handleDiscordMessageUpdate)
-	discord.Client.AddHandler(handleDiscordMessageDelete)
+	discord.Client.AddHandler(discordHandleMessageCreate)
+	discord.Client.AddHandler(discordHandleMessageUpdate)
+	discord.Client.AddHandler(discordHandleMessageDelete)
 	discord.Client.Open()
 	defer discord.Client.Close()
 
 	// Setup WhatsApp client
 	whatsapp.Client = whatsmeow.NewClient(whatsapp.GetDevice(), nil)
-	whatsapp.Client.AddEventHandler(EventHandler)
+	whatsapp.Client.AddEventHandler(whatsappHandleEvent)
 	defer whatsapp.Client.Disconnect()
 	if whatsapp.Client.Store.ID == nil {
 		qrChan, _ := whatsapp.Client.GetQRChannel(context.Background())

@@ -1,8 +1,7 @@
-package database
+package bridge
 
 import (
 	"database/sql"
-	"fmt"
 	"log"
 	"os"
 
@@ -13,12 +12,6 @@ var Assoc Database
 
 type Database struct {
 	sqlDB *sql.DB
-}
-
-type Association struct {
-	DC  string
-	WA  string
-	JID string
 }
 
 func (db Database) FromDc(dc string) (*Association, error) {
@@ -39,16 +32,6 @@ func (db Database) FromWa(wa string) (*Association, error) {
 	return &assoc, nil
 }
 
-func (db Database) EditWa(waOld, waNew string) error {
-	_, err := db.sqlDB.Exec("UPDATE assoc SET wa = ? WHERE wa = ?", waNew, waOld)
-	return err
-}
-
-func (db Database) EditDc(dcOld, dcNew string) error {
-	_, err := db.sqlDB.Exec("UPDATE assoc SET dc = ? WHERE dc = ?", dcNew, dcOld)
-	return err
-}
-
 func (db Database) Put(assoc Association) error {
 	log.Println("Associating", assoc.DC, assoc.WA, assoc.JID)
 	_, err := db.sqlDB.Exec("INSERT INTO assoc (dc, wa, jid) VALUES (?, ?, ?)", assoc.DC, assoc.WA, assoc.JID)
@@ -65,7 +48,6 @@ func (db Database) Delete(assoc *Association) error {
 }
 
 func NewMySQL() Database {
-	fmt.Println("Connecting to MySQL")
 	cfg := mysql.Config{
 		User:                 os.Getenv("MYSQL_USER"),
 		Passwd:               os.Getenv("MYSQL_PASSWORD"),
