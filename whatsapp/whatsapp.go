@@ -86,14 +86,13 @@ func Post(message bridge.Message) (string, string) {
 		waMessage.Conversation = &formattedText
 	}
 
-	// jpeg := "image/gif"
-
-	// if len(dcMsg.Embeds) > 0 {
-	// 	imageBytes, _ := DownloadDc(dcMsg.Embeds[0].URL)
-	// 	uploadResp, err := waClient.Upload(context.Background(), imageBytes, whatsmeow.MediaImage)
+	// TODO
+	// for _, attachment := range message.Attachments {
+	// 	jpeg := "image/jpeg"
+	// 	uploadResp, err := Client.Upload(context.Background(), attachment.Data, whatsmeow.MediaImage)
 	// 	if err != nil {
-	// 		logIf(err)
-	// 		return
+	// 		fmt.Printf("Error uploading attachment: %v\n", err)
+	// 		continue
 	// 	}
 	// 	waMessage = &waE2E.Message{
 	// 		ImageMessage: &waE2E.ImageMessage{
@@ -107,7 +106,6 @@ func Post(message bridge.Message) (string, string) {
 	// 			DirectPath:    &uploadResp.DirectPath,
 	// 		},
 	// 	}
-
 	// 	fmt.Printf("waMessage: %v\n", waMessage)
 	// }
 

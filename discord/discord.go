@@ -2,7 +2,6 @@ package discord
 
 import (
 	"bytes"
-	"fmt"
 
 	"github.com/IntGrah/gobridge/bridge"
 	"github.com/bwmarrin/discordgo"
@@ -25,11 +24,11 @@ func Receive(dcMsg *discordgo.MessageCreate) (bridge.Message, string) {
 	}
 
 	for _, embed := range dcMsg.Embeds {
-		fmt.Printf("embed.URL: %v\n", embed.URL)
+		message.Text += "\n" + embed.URL
 	}
 
 	for _, attachment := range dcMsg.Attachments {
-		fmt.Printf("attachment.URL: %v\n", attachment.URL)
+		message.Text += "\n" + attachment.URL
 	}
 
 	return message, dcMsg.ID
