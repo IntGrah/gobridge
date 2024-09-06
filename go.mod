@@ -4,6 +4,7 @@ go 1.23.0
 
 require (
 	github.com/bwmarrin/discordgo v0.28.1
+	github.com/delthas/discord-formatting v0.0.0-20220730152124-232054d9d66b
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-sqlite3 v1.14.22

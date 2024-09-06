@@ -1,6 +1,7 @@
-package main
+package download
 
 import (
+	"fmt"
 	"mime"
 )
 
@@ -35,10 +36,12 @@ func MimeTypeToExtension(mimeType string) string {
 	case "text/comma-separated-values":
 		return ".csv"
 	default:
+		fmt.Printf("Unknown mimeType: %v\n", mimeType)
 		exts, err := mime.ExtensionsByType(mimeType)
 		if err != nil {
 			return ""
 		}
+		fmt.Printf("Best guess: %v\n", exts[0])
 		return exts[0]
 	}
 }

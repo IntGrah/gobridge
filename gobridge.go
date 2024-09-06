@@ -2,103 +2,152 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"log"
 	"os"
-	"os/signal"
-	"syscall"
 
+	"github.com/IntGrah/gobridge/database"
+	"github.com/IntGrah/gobridge/discord"
+	"github.com/IntGrah/gobridge/richtext"
+	"github.com/IntGrah/gobridge/whatsapp"
 	"github.com/bwmarrin/discordgo"
-	"github.com/go-sql-driver/mysql"
 	"github.com/joho/godotenv"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/store"
-	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/proto/waCommon"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 )
 
-var (
-	db            *sql.DB
-	dcToken       string
-	dcBot         *discordgo.Session
-	waClient      *whatsmeow.Client
-	dcChanID      string
-	waGroupJIDStr string
-	waGroupJID, _ = types.ParseJID(waGroupJIDStr)
-	waContacts    = make(map[types.JID]types.ContactInfo)
-	device        *store.Device
-)
+func handleDiscordMessageCreate(_ *discordgo.Session, dcMsg *discordgo.MessageCreate) {
+	if dcMsg.ChannelID != discord.ChannelID || dcMsg.Author == nil || dcMsg.Author.Bot {
+		return
+	}
+	message, dcMsgID := discord.Receive(dcMsg)
+	waMsgID, waJID := whatsapp.Post(message)
+	database.Assoc.Put(database.Association{DC: dcMsgID, WA: waMsgID, JID: waJID})
+}
 
-func getDevice() *store.Device {
-	storeContainer, _ := sqlstore.New("sqlite3", "file:session.db?_pragma=foreign_keys(1)&_pragma=busy_timeout=10000", nil)
-	device, _ = storeContainer.GetFirstDevice()
-	return device
+func handleDiscordMessageDelete(_ *discordgo.Session, dcMsg *discordgo.MessageDelete) {
+	if dcMsg.ChannelID != discord.ChannelID {
+		return
+	}
+
+	association, err := database.Assoc.FromDc(dcMsg.ID)
+	if err != nil {
+		return
+	}
+	fromMe := true
+	messageDelete := &waE2E.Message{
+		ProtocolMessage: &waE2E.ProtocolMessage{
+			Key: &waCommon.MessageKey{
+				RemoteJID: &whatsapp.GroupJIDStr,
+				ID:        &association.WA,
+				FromMe:    &fromMe,
+			},
+			Type: waE2E.ProtocolMessage_REVOKE.Enum(),
+		},
+	}
+	whatsapp.Client.SendMessage(context.Background(), whatsapp.GroupJID, messageDelete)
+	database.Assoc.Delete(association)
+}
+
+func handleDiscordMessageUpdate(_ *discordgo.Session, dcMsg *discordgo.MessageUpdate) {
+	if dcMsg.ChannelID != discord.ChannelID || dcMsg.Author == nil || dcMsg.Author.Bot {
+		return
+	}
+	association, err := database.Assoc.FromDc(dcMsg.ID)
+	if err != nil {
+		return
+	}
+	fromMe := true
+	messageEdit := &waE2E.Message{
+		ProtocolMessage: &waE2E.ProtocolMessage{
+			Key: &waCommon.MessageKey{
+				RemoteJID: &whatsapp.GroupJIDStr,
+				ID:        &association.WA,
+				FromMe:    &fromMe,
+			},
+			EditedMessage: &waE2E.Message{
+				Conversation: &dcMsg.Content,
+			},
+			Type: waE2E.ProtocolMessage_MESSAGE_EDIT.Enum(),
+		},
+	}
+	whatsapp.Client.SendMessage(context.Background(), whatsapp.GroupJID, messageEdit)
+}
+
+func handleWhatsAppMessage(waMsg *events.Message) {
+	if waMsg.Info.Chat != whatsapp.GroupJID {
+		return
+	}
+	if waMsg.Message.ProtocolMessage != nil {
+		prot := waMsg.Message.ProtocolMessage
+		if prot.GetType() == waE2E.ProtocolMessage_REVOKE {
+			association, err := database.Assoc.FromWa(prot.Key.GetID())
+			if err != nil {
+				return
+			}
+			discord.Client.ChannelMessageDelete(discord.ChannelID, association.DC)
+			database.Assoc.Delete(association)
+		} else if prot.GetType() == waE2E.ProtocolMessage_MESSAGE_EDIT {
+			association, err := database.Assoc.FromWa(prot.Key.GetID())
+			if err != nil {
+				return
+			}
+			formattedText := richtext.Format(whatsapp.GetNameFromJID(waMsg.Info.Sender), whatsapp.ExtractText(prot.EditedMessage))
+			discord.Client.ChannelMessageEdit(discord.ChannelID, association.DC, formattedText)
+		}
+		return
+	}
+	message, waMsgID, waJID := whatsapp.Receive(waMsg)
+	dcMsgID := discord.Post(message)
+	database.Assoc.Put(database.Association{DC: dcMsgID, WA: waMsgID, JID: waJID})
+}
+
+func EventHandler(evt interface{}) {
+	switch e := evt.(type) {
+	case *events.Message:
+		handleWhatsAppMessage(e)
+	}
+}
+
+func init() {
+	godotenv.Load(".env")
+	database.Assoc = database.NewMySQL()
+	discord.Token = os.Getenv("DISCORD_TOKEN")
+	discord.ChannelID = os.Getenv("DISCORD_CHANNEL_ID")
+
+	whatsapp.GroupJIDStr = os.Getenv("WHATSAPP_GROUP_JID")
+	whatsapp.GroupJID, _ = types.ParseJID(whatsapp.GroupJIDStr)
 }
 
 func main() {
-	var err error
-	godotenv.Load(".env")
-	dcToken = os.Getenv("DISCORD_TOKEN")
-	dcChanID = os.Getenv("DISCORD_CHANNEL_ID")
-	waGroupJIDStr = os.Getenv("WHATSAPP_GROUP_JID")
-
-	// Connect to MySQL database
-	cfg := mysql.Config{
-		User:   os.Getenv("MYSQL_USER"),
-		Passwd: os.Getenv("MYSQL_PASSWORD"),
-		Net:    "tcp",
-		Addr:   os.Getenv("MYSQL_HOST"),
-		DBName: os.Getenv("MYSQL_DATABASE"),
-	}
-	db, err = sql.Open("mysql", cfg.FormatDSN())
-	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
-	}
-	defer db.Close()
-
-	rows, err := db.Query("select * from assoc")
-	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
-	}
-	defer rows.Close()
-
 	// Setup Discord session
-	dcBot, _ = discordgo.New("Bot " + dcToken)
-	dcBot.AddHandler(HandleDiscordMessage)
-	dcBot.Open()
-	defer dcBot.Close()
+	discord.Client, _ = discordgo.New("Bot " + discord.Token)
+	discord.Client.AddHandler(handleDiscordMessageCreate)
+	discord.Client.AddHandler(handleDiscordMessageUpdate)
+	discord.Client.AddHandler(handleDiscordMessageDelete)
+	discord.Client.Open()
+	defer discord.Client.Close()
 
 	// Setup WhatsApp client
-	deviceStore := getDevice()
-
-	waClient = whatsmeow.NewClient(deviceStore, nil)
-	waClient.AddEventHandler(eventHandler)
-	defer waClient.Disconnect()
-
-	if waClient.Store.ID == nil {
-		qrChan, _ := waClient.GetQRChannel(context.Background())
-		waClient.Connect()
+	whatsapp.Client = whatsmeow.NewClient(whatsapp.GetDevice(), nil)
+	whatsapp.Client.AddEventHandler(EventHandler)
+	defer whatsapp.Client.Disconnect()
+	if whatsapp.Client.Store.ID == nil {
+		qrChan, _ := whatsapp.Client.GetQRChannel(context.Background())
+		whatsapp.Client.Connect()
 		for evt := range qrChan {
 			if evt.Event == "code" {
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-			} else {
-				log.Println("Login event:", evt.Event)
 			}
 		}
 	} else {
-		waClient.Connect()
+		whatsapp.Client.Connect()
 	}
 
 	log.Println("Connected")
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	<-stop // Block until signal is received
-}
-
-func logIf(err error) {
-	if err != nil {
-		log.Println(err)
-	}
+	select {} // Block until interrupted
 }
