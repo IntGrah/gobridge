@@ -67,11 +67,12 @@ func (db Database) Delete(assoc *Association) error {
 func NewMySQL() Database {
 	fmt.Println("Connecting to MySQL")
 	cfg := mysql.Config{
-		User:   os.Getenv("MYSQL_USER"),
-		Passwd: os.Getenv("MYSQL_PASSWORD"),
-		Net:    "tcp",
-		Addr:   os.Getenv("MYSQL_HOST"),
-		DBName: os.Getenv("MYSQL_DATABASE"),
+		User:                 os.Getenv("MYSQL_USER"),
+		Passwd:               os.Getenv("MYSQL_PASSWORD"),
+		Net:                  "tcp",
+		Addr:                 os.Getenv("MYSQL_HOST"),
+		DBName:               os.Getenv("MYSQL_DATABASE"),
+		AllowNativePasswords: true,
 	}
 	mysqlDB, err := sql.Open("mysql", cfg.FormatDSN())
 	if err != nil {
