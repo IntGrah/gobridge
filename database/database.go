@@ -1,4 +1,4 @@
-package bridge
+package database
 
 import (
 	"database/sql"
@@ -9,6 +9,12 @@ import (
 )
 
 var Assoc Database
+
+type Association struct {
+	DC  string
+	WA  string
+	JID string
+}
 
 type Database struct {
 	sqlDB *sql.DB

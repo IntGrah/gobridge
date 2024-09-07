@@ -1,13 +1,11 @@
-package bridge
+package main
 
 import (
 	"fmt"
-	"io"
 	"mime"
-	"net/http"
 )
 
-func MimeTypeToExtension(mimeType string) string {
+func mimeTypeToExtension(mimeType string) string {
 	switch mimeType {
 	case "image/jpeg":
 		return ".jpg"
@@ -27,6 +25,8 @@ func MimeTypeToExtension(mimeType string) string {
 		return ".aac"
 	case "audio/mpeg":
 		return ".mp3"
+	case "audio/x-wav":
+		return ".wav"
 	case "application/pdf":
 		return ".pdf"
 	case "video/mp4":
@@ -46,21 +46,4 @@ func MimeTypeToExtension(mimeType string) string {
 		fmt.Printf("Best guess: %v\n", exts[0])
 		return exts[0]
 	}
-}
-
-func Download(url string) []byte {
-	resp, err := http.Get(url)
-	if err != nil {
-		fmt.Println("Error downloading file:", err)
-		return nil
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		fmt.Println("Error reading response body:", err)
-		return nil
-	}
-
-	return body
 }
