@@ -30,16 +30,18 @@ func whatsappHandleEvent(evt interface{}) {
 	}
 }
 
-func init() {
-	godotenv.Load(".env")
+func main() {
+	// Load environment variables
+	godotenv.Load(os.Args[1])
 	database.Assoc = database.NewMySQL()
 	discordToken = os.Getenv("DISCORD_TOKEN")
 	discordChannelID = os.Getenv("DISCORD_CHANNEL_ID")
 	GroupJIDStr = os.Getenv("WHATSAPP_GROUP_JID")
 	GroupJID, _ = types.ParseJID(GroupJIDStr)
-}
+	if discordToken == "" || discordChannelID == "" || GroupJIDStr == "" {
+		log.Fatalln("Missing environment variables")
+	}
 
-func main() {
 	// Setup Discord session
 	discordClient, _ = discordgo.New("Bot " + discordToken)
 	discordClient.AddHandler(discordHandleMessageCreate)
